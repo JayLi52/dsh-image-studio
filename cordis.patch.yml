@@ -1,0 +1,4 @@
+# dsh-image-studio bundle layer: mount the image studio plugin.
+- insert:
+    - id: image-studio
+      name: dsh-image-studio

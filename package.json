@@ -1,0 +1,27 @@
+{
+  "name": "dsh-image-studio",
+  "version": "0.1.0",
+  "description": "AI image generation (DashScope qwen-image) plus precise function plotting as native DeepSeek Harness tools",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}
