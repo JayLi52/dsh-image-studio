@@ -1,9 +1,13 @@
 // Password-gated entry sidecar for dsh behind nginx auth_basic.
-// GET /entry -> read the current boot token from the dsh-web journal and 302
-// the browser to /?token=..., letting dsh set its session cookie under the
-// browser's own UA (the trust fence refuses non-browser UAs).
+// GET /entry -> expire every stale dsh-auth-* cookie the browser still carries
+// (cookie names rotate on every dsh-web boot and dsh refuses requests that
+// present an invalid one alongside the valid one), then 302 the browser to
+// /?token=... so dsh issues a fresh session cookie under the browser's UA
+// (the trust fence refuses non-browser UAs).
 import { execFile } from 'node:child_process'
 import { createServer } from 'node:http'
+
+const EPOCH = 'Thu, 01 Jan 1970 00:00:00 GMT'
 
 createServer((req, res) => {
   if (!req.url || !req.url.startsWith('/entry')) {
@@ -20,7 +24,16 @@ createServer((req, res) => {
         res.writeHead(500).end('no boot token in journal')
         return
       }
-      res.writeHead(302, { Location: '/' + matches[matches.length - 1] })
+      const headers = { Location: '/' + matches[matches.length - 1] }
+      const raw = req.headers.cookie || ''
+      const stale = raw
+        .split(';')
+        .map((pair) => pair.trim().split('=')[0])
+        .filter((name) => name && name.startsWith('dsh-auth-'))
+      if (stale.length > 0) {
+        headers['Set-Cookie'] = stale.map((name) => `${name}=; Path=/; Expires=${EPOCH}; Max-Age=0`)
+      }
+      res.writeHead(302, headers)
       res.end()
     },
   )
