@@ -46,6 +46,9 @@ export function apply(ctx) {
 /** Single-workspace deployment root; the bundle runs in global scope where ctx.fs resolves against the process cwd, not the session workspace. */
 const WORKSPACE_ROOT = '/root/workspace'
 
+/** Public origin serving dsh-images/ (nginx proxy in front of imgsrv); tunnel-local by default. */
+const IMAGE_PUBLIC_BASE = process.env.DSH_IMAGE_PUBLIC_BASE || 'http://127.0.0.1:3081'
+
 const DASHSCOPE_BASE = 'https://dashscope.aliyuncs.com/api/v1'
 
 function makeGenerateImageTool(ctx) {
@@ -93,7 +96,7 @@ function makeGenerateImageTool(ctx) {
       render: (_args, value) => [
         {
           type: 'text',
-          text: `<path>${value.path}</path>\n<content>generated ${value.image.width}x${value.image.height} px image via ${value.model}; prompt: ${value.prompt}</content>\n<inline_markdown>![${value.prompt.slice(0, 40)}](http://127.0.0.1:3081/${value.path})</inline_markdown>\nCopy the <inline_markdown> line verbatim into your final message so the image renders inline.`,
+          text: `<path>${value.path}</path>\n<content>generated ${value.image.width}x${value.image.height} px image via ${value.model}; prompt: ${value.prompt}</content>\n<inline_markdown>![${value.prompt.slice(0, 40)}](${IMAGE_PUBLIC_BASE}/${value.path})</inline_markdown>\nCopy the <inline_markdown> line verbatim into your final message so the image renders inline.`,
         },
         {
           type: 'image',
@@ -465,7 +468,7 @@ function makePlotFunctionTool(ctx) {
       render: (_args, value) => [
         {
           type: 'text',
-          text: `<path>${value.path}</path>\n<content>plot of y = ${value.expression} over x in [${value.xRange[0]}, ${value.xRange[1]}], y in [${value.yRange[0].toPrecision(4)}, ${value.yRange[1].toPrecision(4)}]</content>\n<inline_markdown>![plot of y = ${value.expression}](http://127.0.0.1:3081/${value.path})</inline_markdown>\nCopy the <inline_markdown> line verbatim into your final message so the image renders inline.`,
+          text: `<path>${value.path}</path>\n<content>plot of y = ${value.expression} over x in [${value.xRange[0]}, ${value.xRange[1]}], y in [${value.yRange[0].toPrecision(4)}, ${value.yRange[1].toPrecision(4)}]</content>\n<inline_markdown>![plot of y = ${value.expression}](${IMAGE_PUBLIC_BASE}/${value.path})</inline_markdown>\nCopy the <inline_markdown> line verbatim into your final message so the image renders inline.`,
         },
         {
           type: 'image',

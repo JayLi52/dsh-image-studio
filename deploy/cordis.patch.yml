@@ -1,0 +1,43 @@
+# Your patch layer for this dsh profile, applied after every bundle layer:
+# a top-level YAML array of loader patch entries (id-targeted config
+# overrides, disables, and insert lists; `!!js` expressions allowed).
+- insert:
+    - id: hooks-codex
+      name: "@deepseek-ai/dsh-hooks-codex"
+    - id: mcp-claude-mem
+      name: "@deepseek-ai/dsh-mcp-client"
+    - id: mcp-doubao
+      name: "@deepseek-ai/dsh-mcp-client"
+    - id: mcp-tavily
+      name: "@deepseek-ai/dsh-mcp-client"
+- id: hooks-codex
+  name: "@deepseek-ai/dsh-hooks-codex"
+  config:
+    configPath: /root/.dsh/hooks/dsh-codex-hooks.json
+- id: mcp-claude-mem
+  name: "@deepseek-ai/dsh-mcp-client"
+  config:
+    serverName: claude-mem
+    transport: stdio
+    command: /root/.nvm/versions/node/v22.23.2/bin/node
+    args: ["/root/work/claude-mem/plugin/scripts/mcp-server.cjs"]
+    env:
+      CLAUDE_PLUGIN_ROOT: /root/work/claude-mem/plugin
+- id: mcp-doubao
+  name: "@deepseek-ai/dsh-mcp-client"
+  config:
+    serverName: doubao-search
+    transport: stdio
+    command: /root/.nvm/versions/node/v22.23.2/bin/npx
+    args: ["-y", "github:alchaincyf/huashu-doubao-search"]
+    env:
+      DOUBAO_SEARCH_API_KEY: <DOUBAO_SEARCH_API_KEY on machine env>
+- id: mcp-tavily
+  name: "@deepseek-ai/dsh-mcp-client"
+  config:
+    serverName: tavily
+    transport: stdio
+    command: /root/.nvm/versions/node/v22.23.2/bin/npx
+    args: ["-y", "tavily-mcp@latest"]
+    env:
+      TAVILY_API_KEY: <TAVILY_API_KEY on machine env>

@@ -1,0 +1,49 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/.dsh/hooks/claude-mem-hook.sh context",
+            "timeout": 30,
+            "statusMessage": "Loading claude-mem context"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/.dsh/hooks/claude-mem-hook.sh session-init",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/.dsh/hooks/claude-mem-hook.sh observation",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/.dsh/hooks/claude-mem-hook.sh summarize",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
