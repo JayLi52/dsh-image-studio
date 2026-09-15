@@ -57,3 +57,27 @@ range auto-scales with outlier clipping unless `y_min`/`y_max` are given.
 The bundle injects a system-prompt section: when an explanation involves shape, structure or
 space, the agent produces a visual on its own — `plot_function` for exact math,
 `generate_image` for conceptual pictures — and embeds the result inline in its reply.
+
+## Deploy on a fresh machine
+
+The repo is the whole environment (hosts rotate; the repo does not):
+
+```sh
+git clone https://github.com/JayLi52/dsh-image-studio
+cd dsh-image-studio
+DASHSCOPE_API_KEY=... DOUBAO_SEARCH_API_KEY=... TOKEN_PLAN_DASHSCOPE_API_KEY=... \
+  bash deploy/bootstrap.sh
+```
+
+`bootstrap.sh` installs `dsh` + pnpm, writes `~/.dsh/.env` and `settings.yaml`, adds both
+plugins (this one and `dsh-web-search-doubao`), and installs two systemd units: `dsh-web`
+(loopback :3080) and `dsh-images` (loopback :3081 static server for inline markdown images).
+From your laptop:
+
+```sh
+ssh -f -N -L 3080:127.0.0.1:3080 -L 3081:127.0.0.1:3081 root@<host>
+```
+
+Browse http://127.0.0.1:3080; the first-visit trust URL (`?token=...`) is printed by
+`journalctl -u dsh-web`. On each new host, register its fresh SSH public key as a repo
+deploy key (Settings → Deploy keys) so the box can push its own iterations.

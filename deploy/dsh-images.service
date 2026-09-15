@@ -1,0 +1,12 @@
+[Unit]
+Description=dsh image static server (loopback only, reach via SSH tunnel)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=@NODE@ /opt/dsh-imgsrv.js
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
