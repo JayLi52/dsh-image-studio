@@ -24,6 +24,7 @@ window.__ModuleLoader__.load({
       && el.naturalWidth >= 200
       && el.naturalHeight >= 150
       && !el.closest('button')
+      && !el.closest('[data-dsh-lightbox]')
       && !el.dataset.dshGal
 
     const applyGrid = () => {
@@ -43,13 +44,14 @@ window.__ModuleLoader__.load({
     let zoom = false
 
     const overlay = document.createElement('div')
+    overlay.dataset.dshLightbox = '1'
     overlay.style.cssText =
       'position:fixed;inset:0;background:rgba(5,8,14,.96);z-index:2147483000;'
       + 'display:none;align-items:center;justify-content:center;flex-direction:column'
     const stage = document.createElement('div')
     stage.style.cssText = 'max-width:96vw;max-height:86vh;overflow:auto;display:flex;align-items:center;justify-content:center'
     const big = document.createElement('img')
-    big.style.cssText = 'max-width:92vw;max-height:84vh;border-radius:8px;box-shadow:0 10px 50px rgba(0,0,0,.65)'
+    big.style.cssText = 'max-width:95vw;max-height:90vh;border-radius:8px;box-shadow:0 10px 50px rgba(0,0,0,.65)'
     stage.appendChild(big)
     const bar = document.createElement('div')
     bar.style.cssText = 'color:#cbd5e1;font:13px/1 system-ui;margin-top:12px;display:flex;gap:12px;align-items:center;user-select:none'
@@ -58,21 +60,50 @@ window.__ModuleLoader__.load({
       + '<span data-a="count"></span>'
       + '<button data-a="next" style="all:unset;cursor:pointer;font-size:20px;padding:4px 10px">›</button>'
       + '<button data-a="zoom" style="all:unset;cursor:pointer;padding:4px 10px;border:1px solid #334155;border-radius:6px">1:1</button>'
-      + '<a data-a="dl" style="all:unset;cursor:pointer;padding:4px 10px;border:1px solid #334155;border-radius:6px" download>⬇</a>'
+      + '<button data-a="dl" style="all:unset;cursor:pointer;padding:4px 10px;border:1px solid #334155;border-radius:6px" title="下载原图到本地">⬇</button>'
       + '<button data-a="close" style="all:unset;cursor:pointer;padding:4px 10px;border:1px solid #334155;border-radius:6px">✕</button>'
     overlay.append(stage, bar)
     document.documentElement.appendChild(overlay)
 
     const count = bar.querySelector('[data-a="count"]')
-    const dl = bar.querySelector('[data-a="dl"]')
+
+    // Cross-origin <a download> is ignored by browsers, so pull the original
+    // bytes through fetch and save via an object URL.
+    const download = async () => {
+      const src = items[idx] && items[idx].src
+      if (!src) return
+      try {
+        // cache:'reload' — the image may already sit in the HTTP cache from a
+        // no-cors <img> load saved before CORS headers existed; immutable
+        // caching would otherwise replay that header-less response forever.
+        const res = await fetch(src, { cache: 'reload' })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = src.split('/').pop() || 'image.png'
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(url), 5000)
+      } catch {
+        window.open(src, '_blank')
+      }
+    }
 
     const applyZoom = () => {
+      // !important guards: even if a stray observer ever tiles this img, the
+      // lightbox sizing wins.
+      big.style.setProperty('width', 'auto', 'important')
+      big.style.setProperty('aspect-ratio', 'auto', 'important')
+      big.style.setProperty('object-fit', 'contain', 'important')
       if (zoom) {
-        big.style.maxWidth = 'none'
-        big.style.maxHeight = 'none'
+        big.style.setProperty('max-width', 'none', 'important')
+        big.style.setProperty('max-height', 'none', 'important')
       } else {
-        big.style.maxWidth = '92vw'
-        big.style.maxHeight = '84vh'
+        big.style.setProperty('max-width', '95vw', 'important')
+        big.style.setProperty('max-height', '90vh', 'important')
       }
     }
     const show = (i) => {
@@ -82,11 +113,13 @@ window.__ModuleLoader__.load({
       applyZoom()
       big.src = items[idx].src
       count.textContent = `${idx + 1} / ${items.length}`
-      dl.href = items[idx].src
     }
     const open = (img) => {
       items = [...document.querySelectorAll('img')].filter(
-        (el) => el.naturalWidth >= 200 && el.naturalHeight >= 150,
+        (el) =>
+          el.naturalWidth >= 200
+          && el.naturalHeight >= 150
+          && !el.closest('[data-dsh-lightbox]'),
       )
       idx = items.indexOf(img)
       if (idx < 0) {
@@ -104,7 +137,13 @@ window.__ModuleLoader__.load({
       'click',
       (e) => {
         const img = e.target.closest ? e.target.closest('img') : null
-        if (img && img.naturalWidth >= 200 && img.naturalHeight >= 150 && !img.closest('button')) {
+        if (
+          img
+          && img.naturalWidth >= 200
+          && img.naturalHeight >= 150
+          && !img.closest('button')
+          && !img.closest('[data-dsh-lightbox]')
+        ) {
           e.preventDefault()
           e.stopPropagation()
           open(img)
@@ -126,6 +165,7 @@ window.__ModuleLoader__.load({
         zoom = !zoom
         applyZoom()
       }
+      if (act === 'dl') download()
     })
     window.addEventListener('keydown', (e) => {
       if (overlay.style.display !== 'flex') return
