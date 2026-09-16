@@ -33,8 +33,17 @@ const GUIDANCE = [
   '- Also mention the workspace path once so the user can reuse the file.',
 ].join('\n')
 
+/** The Web UI renders TeX via KaTeX; bare math prose renders as ugly plain text. */
+const MATH_GUIDANCE = [
+  'Math formatting policy (web-ui TeX):',
+  '- The Web UI renders TeX: ALWAYS wrap inline math in $...$ and display math in $$...$$ on its own line. Math left as bare prose displays as unreadable plain text.',
+  '- Inside math spans write real TeX: x_0, x^2, \\lim_{h \\to 0^+}, \\frac{a}{b}, \\varepsilon, \\eta. Never Unicode sub/superscripts (x₀, x², ⁺) and never raw _{ } / ^{ } outside $...$.',
+  '- Keep CJK punctuation (。，；：、) outside the math spans.',
+].join('\n')
+
 export function apply(ctx) {
   ctx.systemPrompt.section({ name: 'image-studio-guidance', order: 90, text: GUIDANCE })
+  ctx.systemPrompt.section({ name: 'math-formatting', order: 91, text: MATH_GUIDANCE })
   ctx.tools.register(makeGenerateImageTool(ctx))
   ctx.tools.register(makePlotFunctionTool(ctx))
 }

@@ -227,6 +227,140 @@ window.__ModuleLoader__.load({
       }
     })
 
+    /* ---------------- bare-TeX safety net ----------------
+     * Models sometimes emit math as bare prose — lim_{h→0⁺}, x₀ — with no
+     * $...$ delimiters, which auto-render cannot pick up. Anchor on
+     * unambiguous TeX markers (_{ }, ^{ }, \cmd) outside math/code, extend
+     * across the surrounding math run, normalize unicode sub/superscripts
+     * and symbols to TeX, then wrap in $...$ so the KaTeX pass renders it.
+     * Already-saved messages heal on render this way. */
+    const SUB_MAP = { '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4', '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9', '₊': '+', '₋': '-', 'ₐ': 'a', 'ₑ': 'e', 'ₒ': 'o', 'ₓ': 'x', 'ₙ': 'n', 'ᵢ': 'i', 'ⱼ': 'j' }
+    const SUP_MAP = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9', '⁺': '+', '⁻': '-', 'ⁿ': 'n', 'ⁱ': 'i' }
+    const SYM_MAP = {
+      '→': '\\to ', '←': '\\gets ', '⇒': '\\Rightarrow ', '⇔': '\\Leftrightarrow ',
+      '⟹': '\\implies ', '⟺': '\\iff ', '−': '-', '–': '-', '—': '-', '×': '\\times ',
+      '±': '\\pm ', '≤': '\\le ', '≥': '\\ge ', '≠': '\\ne ', '∈': '\\in ', '∉': '\\notin ',
+      '⊂': '\\subset ', '∪': '\\cup ', '∩': '\\cap ', '∞': '\\infty ', '∅': '\\varnothing ',
+      '∀': '\\forall ', '∃': '\\exists ', '∑': '\\sum ', '∏': '\\prod ', '∫': '\\int ',
+      '√': '\\sqrt ', '⋅': '\\cdot ', '·': '\\cdot ', '…': '\\dots ', '∂': '\\partial ',
+      '∇': '\\nabla ', '≈': '\\approx ', '≡': '\\equiv ', '∝': '\\propto ', '⊥': '\\perp ',
+      '∥': '\\parallel ', '∠': '\\angle ',
+    }
+    // Symbols/digits/greek that freely extend a math run in either direction.
+    const CORE = /[0-9=+<>!|/\\()[\]{}^_.,:;*−×±≤≥≠∈∉⊂∪∞∀∃∑∏∫√⋅·…∂∇≈≡∝∥∠→←⇒⇔⟹₀-₉⁰-⁹₋ₐₑₒₓₙᵢ⁺⁻ⁿⁱͰ-Ͽ]/
+    // Unambiguous math symbols that anchor a bare-math run even without _{ } or \cmd.
+    const ANCHOR_EXTRA = '[∈∉≤≥≠←→⇒⇔⟹∏∫√∀∂∇≈≡∝<>−₀-₉⁰-⁹]'
+    const MARKER_RE = new RegExp('[A-Za-z]*[_^]\\{[^{}]*\\}|\\\\[a-zA-Z]+|' + ANCHOR_EXTRA, 'g')
+    const HAS_MARKER_RE = new RegExp('[_^]\\{|\\\\[a-zA-Z]+|' + ANCHOR_EXTRA)
+    const isLetter = (c) => /[A-Za-z′]/.test(c)
+
+    const extendLeft = (s, i) => {
+      let j = i
+      while (j > 0) {
+        const c = s[j - 1]
+        if (CORE.test(c)) { j--; continue }
+        if (isLetter(c)) {
+          // a single-letter variable joins; a >=2-letter word is prose
+          if (j >= 2 && /[A-Za-z]/.test(s[j - 2])) break
+          j--; continue
+        }
+        if (c === ' ') {
+          const p = s[j - 2]
+          if (p === undefined) break
+          if (CORE.test(p)) { j -= 2; continue }
+          if (isLetter(p) && (j < 3 || !/[A-Za-z]/.test(s[j - 3]))) { j -= 2; continue }
+        }
+        break
+      }
+      return j
+    }
+    const extendRight = (s, i) => {
+      let j = i
+      while (j < s.length) {
+        const c = s[j]
+        if (CORE.test(c) || isLetter(c)) { j++; continue }
+        if (c === ' ') {
+          const n = s[j + 1]
+          if (n === undefined) break
+          if (CORE.test(n)) { j += 2; continue }
+          if (isLetter(n) && !/^[A-Za-z]{2,}/.test(s.slice(j + 1))) { j += 2; continue }
+        }
+        break
+      }
+      return j
+    }
+    const texify = (raw) => {
+      let out = ''
+      for (let k = 0; k < raw.length; k++) {
+        const c = raw[k]
+        const map = SUB_MAP[c] ? SUB_MAP : SUP_MAP[c] ? SUP_MAP : null
+        if (map) {
+          let run = ''
+          let t = k
+          while (t < raw.length && map[raw[t]]) { run += map[raw[t]]; t++ }
+          out += (map === SUB_MAP ? '_{' : '^{') + run + '}'
+          k = t - 1
+          continue
+        }
+        out += SYM_MAP[c] !== undefined ? SYM_MAP[c] : c
+      }
+      // bare operator words become TeX operators: lim -> \lim
+      return out.replace(/(?<!\\)\b(lim|max|min|sup|inf|ln|log|sin|cos|tan|exp|det|gcd)\b/g, '\\$1 ')
+    }
+    const normalized = typeof WeakSet === 'function' ? new WeakSet() : null
+    const normalizeBareMath = (root) => {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null)
+      const nodes = []
+      while (walker.nextNode()) nodes.push(walker.currentNode)
+      for (const node of nodes) {
+        if (normalized && normalized.has(node)) continue
+        const s = node.nodeValue
+        if (!s || !HAS_MARKER_RE.test(s)) continue
+        const el = node.parentElement
+        if (el && el.closest('pre,code,textarea,script,style,.katex,[data-dsh-lightbox]')) continue
+        const dollars = []
+        for (let k = 0; k < s.length; k++) if (s[k] === '$') dollars.push(k)
+        const insideMath = (i) => {
+          let n = 0
+          for (const d of dollars) { if (d < i) n++; else break }
+          return n % 2 === 1
+        }
+        const spans = []
+        const re = new RegExp(MARKER_RE.source, 'g')
+        let m
+        while ((m = re.exec(s))) {
+          if (insideMath(m.index)) continue
+          spans.push([extendLeft(s, m.index), extendRight(s, m.index + m[0].length)])
+        }
+        if (normalized) normalized.add(node)
+        if (!spans.length) continue
+        spans.sort((x, y) => x[0] - y[0])
+        const merged = []
+        for (const sp of spans) {
+          const last = merged[merged.length - 1]
+          if (last && sp[0] <= last[1]) last[1] = Math.max(last[1], sp[1])
+          else merged.push([sp[0], sp[1]])
+        }
+        let out = ''
+        let prev = 0
+        for (const [a0, b0] of merged) {
+          // prose punctuation at the span edges (the comma in "= A, 存在")
+          // stays outside the math span
+          let a = a0
+          let b = b0
+          while (b > a && /[,.;:，、；：]/.test(s[b - 1])) b--
+          while (a < b && /[,.;:，、；：]/.test(s[a])) a++
+          out += s.slice(prev, a)
+          const inner = texify(s.slice(a, b)).replace(/^\s+/, '').replace(/\s+$/, '')
+          if (inner) out += '$' + inner + '$'
+          out += s.slice(b, b0)
+          prev = b0
+        }
+        out += s.slice(prev)
+        if (out !== s) node.nodeValue = out
+      }
+    }
+
     /* ---------------- KaTeX math rendering ----------------
      * The dsh Web UI ships no TeX renderer, so $...$ / $$...$$ in assistant
      * messages display as raw text. Self-hosted KaTeX (nginx /katex/) plus
@@ -250,7 +384,10 @@ window.__ModuleLoader__.load({
           const scan = () => {
             if (typeof window.renderMathInElement !== 'function') return
             try {
+              normalizeBareMath(document.body)
               window.renderMathInElement(document.body, {
+                throwOnError: false,
+                errorColor: '#b91c1c',
                 delimiters: [
                   { left: '$$', right: '$$', display: true },
                   { left: '$', right: '$', display: false },
