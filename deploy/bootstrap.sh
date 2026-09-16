@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Bring up the full dsh + image-studio stack on a fresh Linux box.
 # Usage (as root, keys in env):
-#   DASHSCOPE_API_KEY=... DOUBAO_SEARCH_API_KEY=... TOKEN_PLAN_DASHSCOPE_API_KEY=... bash deploy/bootstrap.sh
+#   DASHSCOPE_API_KEY=... DOUBAO_SEARCH_API_KEY=... TOKEN_PLAN_DASHSCOPE_API_KEY=... \
+#   DSH_TRUSTED_HOSTS="1.2.3.4:8099 1.2.3.4" bash deploy/bootstrap.sh
 set -euo pipefail
 
 : "${DASHSCOPE_API_KEY:?required}"
-: "${DOUBAO_SEARCH_API_KEY:?required (optional feature: set dummy to skip doubao plugin)}"
+: "${DOUBAO_SEARCH_API_KEY:?required}"
 : "${TOKEN_PLAN_DASHSCOPE_API_KEY:?required}"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -23,8 +24,9 @@ cp "$HERE/settings.example.yaml" ~/.dsh/settings.yaml
 dsh plugin --profile web add github:JayLi52/dsh-web-search-doubao
 dsh plugin --profile web add github:JayLi52/dsh-image-studio
 
-mkdir -p /root/workspace
+mkdir -p /root/workspace /root/.dsh/hooks
 cp "$HERE/imgsrv.js" /opt/dsh-imgsrv.js
+cp "$HERE/entry-service.js" /opt/dsh-entry-service.js
 
 NODE_BIN="$(command -v node)"
 DSH_BIN="$(command -v dsh)"
@@ -34,13 +36,30 @@ TRUSTED_ARGS=""
 for h in ${DSH_TRUSTED_HOSTS:-}; do TRUSTED_ARGS="$TRUSTED_ARGS --trusted-host $h"; done
 sed -e "s|@NODE@|$NODE_BIN|" -e "s|@DSH@|$DSH_BIN|" -e "s|@TRUSTED_HOSTS@|$TRUSTED_ARGS|" "$HERE/dsh-web.service" > /etc/systemd/system/dsh-web.service
 sed -e "s|@NODE@|$NODE_BIN|" "$HERE/dsh-images.service" > /etc/systemd/system/dsh-images.service
+sed -e "s|@NODE@|$NODE_BIN|" "$HERE/dsh-entry.service" > /etc/systemd/system/dsh-entry.service
+
+# Self-hosted KaTeX: the client plugin loads /katex/ from the nginx gateway for
+# math rendering (the dsh Web UI ships no TeX renderer).
+if [ ! -f /opt/dsh-katex/katex.min.js ]; then
+  cd /tmp
+  npm pack katex@0.16.21 --silent
+  tar xzf katex-0.16.21.tgz
+  rm -rf /opt/dsh-katex
+  mv package/dist /opt/dsh-katex
+  cd "$HERE"
+fi
+
+# nginx gateway: silent boot-ticket exchange, /dsh-images image store, /katex.
+cp "$HERE/nginx-dsh.conf" /etc/nginx/conf.d/dsh.conf
+nginx -t
+systemctl enable --now nginx
+systemctl reload nginx
+
 systemctl daemon-reload
-systemctl enable --now dsh-images dsh-web
+systemctl enable --now dsh-images dsh-entry dsh-web
 
 cat <<'EOF'
 
-Done. From your laptop, open the tunnel:
-  ssh -f -N -L 3080:127.0.0.1:3080 -L 3081:127.0.0.1:3081 root@<this-host>
-Then browse http://127.0.0.1:3080 — the first-visit trust URL (with ?token=...) is in:
-  ssh root@<this-host> "journalctl -u dsh-web --no-pager | grep -oE 'http://127.0.0.1:3080/\?[^ ]+' | tail -1"
+Done. Open http://<this-host>:8099/ (or ssh -L 8099:127.0.0.1:8099 first).
+First visit silently exchanges the boot ticket: no password, no token handling.
 EOF

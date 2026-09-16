@@ -173,6 +173,53 @@ window.__ModuleLoader__.load({
       if (e.key === 'ArrowLeft') show(idx - 1)
       if (e.key === 'ArrowRight') show(idx + 1)
     })
+
+    /* ---------------- KaTeX math rendering ----------------
+     * The dsh Web UI ships no TeX renderer, so $...$ / $$...$$ in assistant
+     * messages display as raw text. Self-hosted KaTeX (nginx /katex/) plus
+     * auto-render on a debounced MutationObserver fixes it without touching
+     * harness source. Re-running auto-render is safe: consumed delimiters
+     * disappear, so already-rendered regions are skipped naturally. */
+    if (!window.__dshKatexBooted) {
+      window.__dshKatexBooted = 1
+      const base = `${location.origin}/katex/`
+      const link = document.createElement('link')
+      link.rel = 'stylesheet'
+      link.href = `${base}katex.min.css`
+      document.head.appendChild(link)
+      const mainScript = document.createElement('script')
+      mainScript.src = `${base}katex.min.js`
+      mainScript.onload = () => {
+        const ar = document.createElement('script')
+        ar.src = `${base}contrib/auto-render.min.js`
+        ar.onload = () => {
+          let timer = null
+          const scan = () => {
+            if (typeof window.renderMathInElement !== 'function') return
+            try {
+              window.renderMathInElement(document.body, {
+                delimiters: [
+                  { left: '$$', right: '$$', display: true },
+                  { left: '$', right: '$', display: false },
+                  { left: '\\[', right: '\\]', display: true },
+                  { left: '\\(', right: '\\)', display: false },
+                ],
+                ignoredTags: ['pre', 'code', 'textarea', 'input', 'option', 'script', 'style'],
+              })
+            } catch {
+              /* partial streaming content: retry on next mutation */
+            }
+          }
+          new MutationObserver(() => {
+            clearTimeout(timer)
+            timer = setTimeout(scan, 400)
+          }).observe(document.body, { childList: true, subtree: true })
+          scan()
+        }
+        document.head.appendChild(ar)
+      }
+      document.head.appendChild(mainScript)
+    }
       },
     }
   },

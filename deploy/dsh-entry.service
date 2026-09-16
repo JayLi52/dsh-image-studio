@@ -1,0 +1,13 @@
+[Unit]
+Description=dsh password entry sidecar
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Environment=PATH=@NODE@DIR:/usr/bin:/bin
+ExecStart=@NODE@ /opt/dsh-entry-service.js
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
