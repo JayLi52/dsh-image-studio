@@ -24,6 +24,45 @@ cp "$HERE/settings.example.yaml" ~/.dsh/settings.yaml
 dsh plugin --profile web add github:JayLi52/dsh-web-search-doubao
 dsh plugin --profile web add github:JayLi52/dsh-image-studio
 
+# MCP server layers carry secrets in config.env, so they are appended here at
+# bootstrap time from the environment instead of living in the repo template.
+cat >> ~/.dsh/profiles/web/cordis.patch.yml <<LAYER
+- insert:
+    - id: mcp-claude-mem
+      name: "@deepseek-ai/dsh-mcp-client"
+    - id: mcp-doubao
+      name: "@deepseek-ai/dsh-mcp-client"
+    - id: mcp-tavily
+      name: "@deepseek-ai/dsh-mcp-client"
+- id: mcp-claude-mem
+  name: "@deepseek-ai/dsh-mcp-client"
+  config:
+    serverName: claude-mem
+    transport: stdio
+    command: $(command -v node)
+    args: ["/root/work/claude-mem/plugin/scripts/mcp-server.cjs"]
+    env:
+      CLAUDE_PLUGIN_ROOT: /root/work/claude-mem/plugin
+- id: mcp-doubao
+  name: "@deepseek-ai/dsh-mcp-client"
+  config:
+    serverName: doubao-search
+    transport: stdio
+    command: $(command -v npx)
+    args: ["-y", "github:alchaincyf/huashu-doubao-search"]
+    env:
+      DOUBAO_SEARCH_API_KEY: $DOUBAO_SEARCH_API_KEY
+- id: mcp-tavily
+  name: "@deepseek-ai/dsh-mcp-client"
+  config:
+    serverName: tavily
+    transport: stdio
+    command: $(command -v npx)
+    args: ["-y", "tavily-mcp@latest"]
+    env:
+      TAVILY_API_KEY: $TAVILY_API_KEY
+LAYER
+
 mkdir -p /root/workspace /root/.dsh/hooks
 cp "$HERE/imgsrv.js" /opt/dsh-imgsrv.js
 cp "$HERE/entry-service.js" /opt/dsh-entry-service.js

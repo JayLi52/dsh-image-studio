@@ -174,6 +174,43 @@ window.__ModuleLoader__.load({
       if (e.key === 'ArrowRight') show(idx + 1)
     })
 
+    /* ---------------- math-aware clipboard ----------------
+     * Selecting rendered KaTeX and copying yields fragmented glyph soup by
+     * default. Re-serialize the selection: text nodes pass through, each
+     * .katex element contributes its original TeX from the MathML
+     * <annotation encoding="application/x-tex"> node, wrapped in $ / $$. */
+    const serializeMathSelection = (node) => {
+      if (node.nodeType === 3) return node.textContent
+      if (node.nodeType !== 1) return ''
+      const el = node
+      if (el.classList.contains('katex-mathml')) return ''
+      if (el.classList.contains('katex-display')) {
+        const inner = el.querySelector('.katex')
+        return inner ? serializeMathSelection(inner) : ''
+      }
+      if (el.classList.contains('katex')) {
+        const display = el.parentElement && el.parentElement.classList.contains('katex-display')
+        const tex = (el.querySelector('annotation[encoding="application/x-tex"]') || {}).textContent
+        if (tex === undefined || tex === null) return el.textContent
+        return display ? `$$${tex}$$` : `$${tex}$`
+      }
+      if (el.tagName === 'BR') return '\n'
+      let out = ''
+      for (const child of el.childNodes) out += serializeMathSelection(child)
+      return out
+    }
+    document.addEventListener('copy', (e) => {
+      const sel = typeof window.getSelection === 'function' ? window.getSelection() : null
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return
+      const frag = sel.getRangeAt(0).cloneContents()
+      if (!frag.querySelector || !frag.querySelector('.katex')) return
+      const text = serializeMathSelection(frag)
+      if (text) {
+        e.clipboardData.setData('text/plain', text)
+        e.preventDefault()
+      }
+    })
+
     /* ---------------- KaTeX math rendering ----------------
      * The dsh Web UI ships no TeX renderer, so $...$ / $$...$$ in assistant
      * messages display as raw text. Self-hosted KaTeX (nginx /katex/) plus
