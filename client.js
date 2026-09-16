@@ -410,6 +410,56 @@ window.__ModuleLoader__.load({
       }
       document.head.appendChild(mainScript)
     }
+
+    /* Workspace file-row download: the right-sidebar file tree renders each file as
+       li[data-files-entry="file"][data-files-path=<absolute host path>]. Inject a ⬇
+       button into every such row (visible on hover) and save the file through the
+       session-authenticated /api/file route, which streams workspace bytes to the
+       browser — the stock UI only offers "open on Host desktop", unusable headless. */
+    {
+      const dlCss = document.createElement('style')
+      dlCss.textContent =
+        'li[data-files-entry="file"]{position:relative}'
+        + '.dsh-dl-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);z-index:5;display:none;'
+        + 'align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;'
+        + 'background:rgba(127,127,127,.28);color:inherit;cursor:pointer;font-size:12px;line-height:1}'
+        + 'li[data-files-entry="file"]:hover .dsh-dl-btn,li[data-files-entry="file"]:focus-within .dsh-dl-btn{display:inline-flex}'
+      document.head.appendChild(dlCss)
+      const ensureDl = (li) => {
+        if (li.querySelector('.dsh-dl-btn')) return
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'dsh-dl-btn'
+        btn.title = '下载到本地'
+        btn.setAttribute('aria-label', '下载到本地')
+        btn.textContent = '⬇'
+        li.appendChild(btn)
+      }
+      const scanDl = (root) => {
+        if (!root.querySelectorAll) return
+        if (root.matches && root.matches('li[data-files-entry="file"]')) ensureDl(root)
+        root.querySelectorAll('li[data-files-entry="file"]').forEach(ensureDl)
+      }
+      new MutationObserver((muts) => {
+        for (const m of muts) for (const n of m.addedNodes) if (n.nodeType === 1) scanDl(n)
+      }).observe(document.body, { childList: true, subtree: true })
+      scanDl(document)
+      document.addEventListener('click', (e) => {
+        const btn = e.target.closest && e.target.closest('.dsh-dl-btn')
+        if (!btn) return
+        e.preventDefault()
+        e.stopPropagation()
+        const li = btn.closest('li[data-files-entry="file"]')
+        const path = li && li.getAttribute('data-files-path')
+        if (!path) return
+        const a = document.createElement('a')
+        a.href = '/api/file?path=' + encodeURIComponent(path)
+        a.download = path.split('/').pop()
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+      }, true)
+    }
       },
     }
   },

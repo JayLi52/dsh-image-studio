@@ -29,8 +29,8 @@ const GUIDANCE = [
   '- When an explanation involves shape, structure, or space — function curves and graphs, geometric relations, mechanical or engineering structures, processes and architectures — proactively produce a visual instead of a walls-of-text description. Do not ask permission first when the visual directly serves the current explanation.',
   '- For exact mathematical function graphs, coordinate plots, and calculus visualizations (limits, derivatives, integrals, series), call plot_function: diffusion models cannot render accurate axes or curves.',
   '- For conceptual diagrams, structure sketches, scene or object illustrations, posters, and "draw me a picture" requests, call generate_image.',
-  '- CRITICAL presentation rule: after plot_function or generate_image succeeds, your final message MUST embed the image inline as markdown image syntax: ![<short caption>](/<path>) where <path> is the workspace-relative path from the tool result (e.g. dsh-images/plot-123.png). The leading-slash form is a same-origin URL that the Web UI serves to the user\'s browser from whatever host they opened it on; a bare filename or path reference is NOT acceptable.',
-  '- Also mention the workspace path once so the user can reuse the file.',
+  '- CRITICAL presentation rule: after plot_function or generate_image succeeds, your final message MUST embed the image inline by copying the <inline_markdown> line from the tool result verbatim (generate_image provides a 24h-signed OSS URL; plot_function provides a same-origin /dsh-images/ path). A bare filename or path reference is NOT acceptable.',
+  '- For plot_function also mention the workspace path once so the user can reuse the file.',
 ].join('\n')
 
 /** The Web UI renders TeX via KaTeX; bare math prose renders as ugly plain text. */
@@ -67,7 +67,7 @@ function makeGenerateImageTool(ctx) {
       'Generate an image with an AI diffusion model (DashScope qwen-image). '
       + 'Use when the user asks to draw/generate/create a picture, illustration, poster, concept diagram, mechanical-structure sketch, or scene, or when a conceptual visual would help an explanation. '
       + 'For exact math function graphs or coordinate plots use plot_function instead — diffusion models render coordinates inaccurately. '
-      + 'The PNG is shown inline in the conversation and saved under dsh-images/ in the workspace.',
+      + 'The image is shown inline in the conversation via a 24h-signed OSS URL; no workspace copy is kept.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -82,9 +82,10 @@ function makeGenerateImageTool(ctx) {
       schema: {
         type: 'object',
         additionalProperties: false,
-        required: ['path', 'prompt', 'image'],
+        required: ['path', 'prompt', 'image', 'url'],
         properties: {
           path: { type: 'string' },
+          url: { type: 'string' },
           prompt: { type: 'string' },
           model: { type: 'string' },
           image: {
@@ -105,7 +106,7 @@ function makeGenerateImageTool(ctx) {
       render: (_args, value) => [
         {
           type: 'text',
-          text: `<path>${value.path}</path>\n<content>generated ${value.image.width}x${value.image.height} px image via ${value.model}; prompt: ${value.prompt}</content>\n<inline_markdown>![${value.prompt.slice(0, 40)}](${IMAGE_PUBLIC_BASE}/${value.path})</inline_markdown>\nCopy the <inline_markdown> line verbatim into your final message so the image renders inline.`,
+          text: `<path>${value.path}</path>\n<content>generated ${value.image.width}x${value.image.height} px image via ${value.model}; prompt: ${value.prompt}</content>\n<inline_markdown>![${value.prompt.slice(0, 40)}](${value.url})</inline_markdown>\nCopy the <inline_markdown> line verbatim into your final message so the image renders inline.`,
         },
         {
           type: 'image',
@@ -171,21 +172,18 @@ function makeGenerateImageTool(ctx) {
       const image = await fetch(imageUrl, { signal: exec.signal })
       if (!image.ok) throw new Error(`generate_image: image download failed: HTTP ${image.status}`)
       const bytes = new Uint8Array(await image.arrayBuffer())
-      if (bytes[0] !== 0x89 || bytes[1] !== 0x50) throw new Error('generate_image: downloaded payload is not a PNG')
+      const mediaType = bytes[0] === 0x89 && bytes[1] === 0x50 ? 'image/png' : bytes[0] === 0xff && bytes[1] === 0xd8 ? 'image/jpeg' : null
+      if (!mediaType) throw new Error('generate_image: downloaded payload is neither PNG nor JPEG')
 
       const fname = `gen-${Date.now()}.png`
-      const rel = `dsh-images/${fname}`
-      const target = await ctx.fs.resolve(`${WORKSPACE_ROOT}/${rel}`)
-      const host = ctx.fs.processPath(target)
-      await mkdir(dirname(host), { recursive: true })
-      await writeFile(host, bytes)
 
       const attachments = ctx.get('attachments')
-      if (!attachments) throw new Error('generate_image: no attachment store mounted; image saved at ' + rel)
-      const [ref] = await attachments.saveImages([{ data: bytes, mediaType: 'image/png', name: fname }])
+      if (!attachments) throw new Error('generate_image: no attachment store mounted')
+      const [ref] = await attachments.saveImages([{ data: bytes, mediaType, name: fname }])
 
       return {
-        path: rel,
+        path: fname,
+        url: imageUrl,
         prompt: args.prompt,
         model,
         image: {
