@@ -28,7 +28,11 @@ cp "$HERE/imgsrv.js" /opt/dsh-imgsrv.js
 
 NODE_BIN="$(command -v node)"
 DSH_BIN="$(command -v dsh)"
-sed -e "s|@NODE@|$NODE_BIN|" -e "s|@DSH@|$DSH_BIN|" "$HERE/dsh-web.service" > /etc/systemd/system/dsh-web.service
+# DSH_TRUSTED_HOSTS: space-separated public authorities dsh's browser-trust
+# fence should accept, e.g. "203.0.113.7:8099 203.0.113.7". Empty = loopback only.
+TRUSTED_ARGS=""
+for h in ${DSH_TRUSTED_HOSTS:-}; do TRUSTED_ARGS="$TRUSTED_ARGS --trusted-host $h"; done
+sed -e "s|@NODE@|$NODE_BIN|" -e "s|@DSH@|$DSH_BIN|" -e "s|@TRUSTED_HOSTS@|$TRUSTED_ARGS|" "$HERE/dsh-web.service" > /etc/systemd/system/dsh-web.service
 sed -e "s|@NODE@|$NODE_BIN|" "$HERE/dsh-images.service" > /etc/systemd/system/dsh-images.service
 systemctl daemon-reload
 systemctl enable --now dsh-images dsh-web

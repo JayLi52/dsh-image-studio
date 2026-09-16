@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-ExecStart=@NODE@ @DSH@ web --no-open
+ExecStart=@NODE@ @DSH@ web --no-open @TRUSTED_HOSTS@
 Restart=on-failure
 RestartSec=5
 WorkingDirectory=/root
