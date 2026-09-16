@@ -1,5 +1,6 @@
 llm-pi-ai:
   providers:
+    # Full-window tier: long-horizon tasks (whole-repo refactors, long proofs).
     token-plan:
       displayName: Aliyun Token Plan
       apiKeyEnv: TOKEN_PLAN_DASHSCOPE_API_KEY
@@ -12,6 +13,7 @@ llm-pi-ai:
       models:
         - id: deepseek-v4.1-flash
           displayName: DeepSeek V4.1 Flash
+          contextWindow: 262144
           compat:
             thinkingFormat: deepseek
           reasoningEfforts:
@@ -21,6 +23,7 @@ llm-pi-ai:
             max: max
         - id: deepseek-v4-pro
           displayName: DeepSeek V4 Pro
+          contextWindow: 262144
           compat:
             thinkingFormat: deepseek
           reasoningEfforts:
@@ -30,6 +33,7 @@ llm-pi-ai:
             max: max
         - id: qwen3.8-max
           displayName: Qwen3.8 Max
+          contextWindow: 262144
           input: [ text, image ]
           compat:
             thinkingFormat: deepseek
@@ -39,6 +43,7 @@ llm-pi-ai:
             max: max
         - id: qwen3.8-flash
           displayName: Qwen3.8 Flash
+          contextWindow: 262144
           input: [ text, image ]
           compat:
             thinkingFormat: deepseek
@@ -48,18 +53,66 @@ llm-pi-ai:
             max: max
         - id: kimi-k2.7-code
           displayName: Kimi K2.7 Code
+          contextWindow: 262144
           input: [ text, image ]
           reasoningEfforts:
             high: high
             max: max
         - id: glm-5.2
           displayName: GLM 5.2
+          contextWindow: 200000
           reasoningEfforts:
             high: high
             max: max
-ui-onboarding:
-  welcomeNoticeVersion: 2026-08-13.1
+    # Compact tier: cheap/fast single-shot tasks; compaction kicks in early so
+    # each request stays small. Same model ids, smaller declared window.
+    token-plan-compact:
+      displayName: Aliyun Token Plan · 32k compact
+      apiKeyEnv: TOKEN_PLAN_DASHSCOPE_API_KEY
+      api: openai-completions
+      baseURL: https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+      reasoning: high
+      compat:
+        supportsDeveloperRole: false
+        maxTokensField: max_tokens
+      models:
+        - id: deepseek-v4.1-flash
+          displayName: DeepSeek V4.1 Flash · 32k
+          contextWindow: 32768
+          compat:
+            thinkingFormat: deepseek
+          reasoningEfforts:
+            off:
+            low: low
+            high: high
+            max: max
+        - id: qwen3.8-max
+          displayName: Qwen3.8 Max · 32k
+          contextWindow: 32768
+          input: [ text, image ]
+          compat:
+            thinkingFormat: deepseek
+          reasoningEfforts:
+            off:
+            high: high
+            max: max
+        - id: qwen3.8-flash
+          displayName: Qwen3.8 Flash · 32k
+          contextWindow: 32768
+          input: [ text, image ]
+          compat:
+            thinkingFormat: deepseek
+          reasoningEfforts:
+            off:
+            high: high
+            max: max
+connection:
+  trustedHosts:
+    - 47.108.54.226
+    - 47.108.54.226:8099
 agent-default-model:
   provider: token-plan
-  model: deepseek-v4.1-flash
+  model: qwen3.8-max
   reasoningEffort: high
+ui-onboarding:
+  welcomeNoticeVersion: 2026-08-13.1

@@ -81,3 +81,36 @@ ssh -f -N -L 3080:127.0.0.1:3080 -L 3081:127.0.0.1:3081 root@<host>
 Browse http://127.0.0.1:3080; the first-visit trust URL (`?token=...`) is printed by
 `journalctl -u dsh-web`. On each new host, register its fresh SSH public key as a repo
 deploy key (Settings → Deploy keys) so the box can push its own iterations.
+
+## 90-day machine swap runbook
+
+The repo is the whole environment; the box is disposable.
+
+1. On the new box (root), clone and run:
+
+   ```sh
+   git clone https://github.com/JayLi52/dsh-image-studio
+   cd dsh-image-studio
+   DSH_TRUSTED_HOSTS="<public-ip>:8099 <public-ip>" \
+   DASHSCOPE_API_KEY=... DOUBAO_SEARCH_API_KEY=... TOKEN_PLAN_DASHSCOPE_API_KEY=... \
+     bash deploy/bootstrap.sh
+   ```
+
+   bootstrap installs dsh + pnpm, writes `~/.dsh/.env` and `settings.yaml`
+   (two context-window tiers), adds the doubao-search and image-studio plugins,
+   installs the three systemd units (dsh-web / dsh-images / dsh-entry),
+   self-hosts KaTeX to /opt/dsh-katex, and deploys the nginx gateway
+   (silent boot-ticket exchange, /dsh-images, /katex).
+
+2. Re-add machine-local pieces that intentionally live outside the repo:
+   - claude-mem hooks bridge: `cp deploy/hooks/* ~/.dsh/hooks/` then point the
+     dsh-hooks-codex profile layer at `~/.dsh/hooks/dsh-codex-hooks.json`
+     (the profile patch layer in `deploy/cordis.patch.yml` shows the shape);
+   - if semantic memory mattered on the old box, keep `~/.claude-mem/`
+     (sqlite + chroma) in your backup set — it is data, not config.
+
+3. Open `http://<public-ip>:8099/` (or tunnel `-L 8099:127.0.0.1:8099`).
+   First visit silently exchanges the boot ticket; no password, no token copy.
+
+Secrets never enter the repo: the three API keys arrive via environment at
+bootstrap time; the profile patch template carries placeholders only.
