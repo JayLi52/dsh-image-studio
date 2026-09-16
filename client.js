@@ -27,8 +27,24 @@ window.__ModuleLoader__.load({
       && !el.closest('[data-dsh-lightbox]')
       && !el.dataset.dshGal
 
+    /* Older messages embed absolute loopback URLs (http://127.0.0.1:3081/…)
+       that only resolve on the server itself, and any absolute /dsh-images/
+       URL from a foreign origin is likewise unreachable from this browser.
+       Repoint them at the origin the UI is actually served from so inline
+       images load no matter how the user reaches the box. */
+    const fixSrc = (img) => {
+      if (img.closest('[data-dsh-lightbox]')) return
+      const src = img.getAttribute('src') || ''
+      let m = /^https?:\/\/(?:127\.0\.0\.1|localhost):3081\/(.+)$/.exec(src)
+      if (!m) m = /^https?:\/\/[^/]+\/(dsh-images\/.+)$/.exec(src)
+      if (!m) return
+      const want = `${location.origin}/${m[1].replace(/^\/+/, '')}`
+      if (img.src !== want) img.src = want
+    }
+
     const applyGrid = () => {
       for (const img of document.querySelectorAll('img')) {
+        fixSrc(img)
         if (!isContentImage(img)) continue
         img.dataset.dshGal = '1'
         img.setAttribute('style', (img.getAttribute('style') || '') + TILE)

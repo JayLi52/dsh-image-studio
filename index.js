@@ -29,7 +29,7 @@ const GUIDANCE = [
   '- When an explanation involves shape, structure, or space — function curves and graphs, geometric relations, mechanical or engineering structures, processes and architectures — proactively produce a visual instead of a walls-of-text description. Do not ask permission first when the visual directly serves the current explanation.',
   '- For exact mathematical function graphs, coordinate plots, and calculus visualizations (limits, derivatives, integrals, series), call plot_function: diffusion models cannot render accurate axes or curves.',
   '- For conceptual diagrams, structure sketches, scene or object illustrations, posters, and "draw me a picture" requests, call generate_image.',
-  '- CRITICAL presentation rule: after plot_function or generate_image succeeds, your final message MUST embed the image inline as markdown image syntax: ![<short caption>](http://127.0.0.1:3081/<path>) where <path> is the workspace-relative path from the tool result (e.g. dsh-images/plot-123.png). That URL serves the file to the user through a private tunnel; a bare filename or path reference is NOT acceptable.',
+  '- CRITICAL presentation rule: after plot_function or generate_image succeeds, your final message MUST embed the image inline as markdown image syntax: ![<short caption>](/<path>) where <path> is the workspace-relative path from the tool result (e.g. dsh-images/plot-123.png). The leading-slash form is a same-origin URL that the Web UI serves to the user\'s browser from whatever host they opened it on; a bare filename or path reference is NOT acceptable.',
   '- Also mention the workspace path once so the user can reuse the file.',
 ].join('\n')
 
@@ -46,8 +46,8 @@ export function apply(ctx) {
 /** Single-workspace deployment root; the bundle runs in global scope where ctx.fs resolves against the process cwd, not the session workspace. */
 const WORKSPACE_ROOT = '/root/workspace'
 
-/** Public origin serving dsh-images/ (nginx proxy in front of imgsrv); tunnel-local by default. */
-const IMAGE_PUBLIC_BASE = process.env.DSH_IMAGE_PUBLIC_BASE || 'http://127.0.0.1:3081'
+/** Origin prefix for dsh-images/ URLs (nginx proxy in front of imgsrv). Empty default = same-origin relative, reachable from any public origin the UI is served on; loopback absolutes break every remote browser. */
+const IMAGE_PUBLIC_BASE = process.env.DSH_IMAGE_PUBLIC_BASE || ''
 
 const DASHSCOPE_BASE = 'https://dashscope.aliyuncs.com/api/v1'
 
