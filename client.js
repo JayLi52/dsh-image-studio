@@ -98,7 +98,9 @@ window.__ModuleLoader__.load({
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = src.split('/').pop() || 'image.png'
+        // OSS serving URLs carry a signed query string; '?'/'&' are illegal in
+        // Windows filenames and leave Chrome stuck on an unconfirmed .crdownload.
+        a.download = src.split('?')[0].split('#')[0].split('/').pop() || 'image.png'
         document.body.appendChild(a)
         a.click()
         a.remove()
