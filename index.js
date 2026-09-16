@@ -30,6 +30,7 @@ const GUIDANCE = [
   '- For exact mathematical function graphs, coordinate plots, and calculus visualizations (limits, derivatives, integrals, series), call plot_function: diffusion models cannot render accurate axes or curves.',
   '- For conceptual diagrams, structure sketches, scene or object illustrations, posters, and "draw me a picture" requests, call generate_image.',
   '- CRITICAL presentation rule: after plot_function or generate_image succeeds, your final message MUST embed the image inline by copying the <inline_markdown> line from the tool result verbatim (generate_image provides a 24h-signed OSS URL; plot_function provides a same-origin /dsh-images/ path). A bare filename or path reference is NOT acceptable.',
+  '- If generate_image fails with a content-moderation refusal (e.g. "Green net check failed for text input"), rephrase the prompt neutrally — drop quoted slogans/titles, brand names, and politically-adjacent words, describe the same visual plainly — and retry once before reporting the failure to the user.',
   '- For plot_function also mention the workspace path once so the user can reuse the file.',
 ].join('\n')
 

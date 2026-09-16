@@ -462,6 +462,34 @@ window.__ModuleLoader__.load({
         a.remove()
       }, true)
     }
+
+    /* Auto jump-to-bottom on turn completion: the stock conversation viewport only
+       follows the stream while pinned to the bottom; scrolling up (e.g. to open the
+       lightbox) disengages follow and completion leaves the view where it was.
+       Watch the composer's stop button disappearing (running -> idle) and jump. */
+    {
+      const convScroller = () => {
+        // The [data-conversation-scroll] node IS the scroller (stock scrollerOf =
+        // closest()); several panes can exist, so prefer a visible scrollable one.
+        const nodes = [...document.querySelectorAll('[data-conversation-scroll]')].filter((n) => n.clientHeight > 4)
+        return nodes.find((n) => n.scrollHeight > n.clientHeight + 4) || nodes[0] || null
+      }
+      const isRunning = () => [...document.querySelectorAll('button')].some((b) => ((b.getAttribute('aria-label') || '') + b.textContent).includes('停止生成'))
+      let wasRunning = isRunning()
+      let jumpTimer = 0
+      new MutationObserver(() => {
+        if (jumpTimer) return
+        jumpTimer = setTimeout(() => {
+          jumpTimer = 0
+          const running = isRunning()
+          if (wasRunning && !running) {
+            const el = convScroller()
+            if (el && el.scrollHeight - el.scrollTop - el.clientHeight > 25) el.scrollTop = el.scrollHeight
+          }
+          wasRunning = running
+        }, 250)
+      }).observe(document.body, { childList: true, subtree: true, characterData: true })
+    }
       },
     }
   },
