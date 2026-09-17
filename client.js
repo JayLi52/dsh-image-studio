@@ -35,6 +35,8 @@ window.__ModuleLoader__.load({
     const fixSrc = (img) => {
       if (img.closest('[data-dsh-lightbox]')) return
       const src = img.getAttribute('src') || ''
+      // OSS mirror URLs are signed for their own host; never repoint them
+      if (/\/\/[^/]+\.aliyuncs\.com/.test(src)) return
       let m = /^https?:\/\/(?:127\.0\.0\.1|localhost):3081\/(.+)$/.exec(src)
       if (!m) m = /^https?:\/\/[^/]+\/(dsh-images\/.+)$/.exec(src)
       if (!m) return
@@ -50,8 +52,42 @@ window.__ModuleLoader__.load({
         img.setAttribute('style', (img.getAttribute('style') || '') + TILE)
       }
     }
+    /* ---------------- filename-token image injection ----------------
+     * When a message mentions a workspace image by filename but the model
+     * forgot the inline markdown line, materialize the <img> anyway: a bare
+     * filename reference is never an acceptable presentation. Skipped when
+     * an img for that file already exists anywhere (model embedded it). */
+    const injectImages = () => {
+      const have = new Set(
+        [...document.querySelectorAll('img')].map((i) => (i.src.split('/').pop() || '').split('?')[0]),
+      )
+      const leaves = [...document.querySelectorAll('p,li,td,code,span,div,h1,h2,h3,h4')].filter(
+        (el) => el.children.length === 0 && /dsh-images\/(?:gen|plot)-\d+\.png/.test(el.textContent || ''),
+      )
+      for (const el of leaves) {
+        if (el.closest('[data-dsh-lightbox]')) continue
+        const fnames = [...new Set(el.textContent.match(/dsh-images\/(?:gen|plot)-\d+\.png/g) || [])]
+        for (const f of fnames) {
+          const fname = f.split('/').pop()
+          if (have.has(fname)) continue
+          const block = el.closest('p,li') || el.parentElement
+          if (!block || block.dataset.dshinj) continue
+          block.dataset.dshinj = '1'
+          const img = document.createElement('img')
+          img.src = `${location.origin}/dsh-images/${fname}`
+          img.alt = fname
+          block.after(img)
+          have.add(fname)
+        }
+      }
+    }
+
     document.addEventListener('load', applyGrid, true)
-    new MutationObserver(applyGrid).observe(document.body, { childList: true, subtree: true })
+    new MutationObserver(() => {
+      injectImages()
+      applyGrid()
+    }).observe(document.body, { childList: true, subtree: true })
+    injectImages()
     applyGrid()
 
     /* ---------------- lightbox ---------------- */
@@ -98,9 +134,7 @@ window.__ModuleLoader__.load({
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        // OSS serving URLs carry a signed query string; '?'/'&' are illegal in
-        // Windows filenames and leave Chrome stuck on an unconfirmed .crdownload.
-        a.download = src.split('?')[0].split('#')[0].split('/').pop() || 'image.png'
+        a.download = src.split('/').pop() || 'image.png'
         document.body.appendChild(a)
         a.click()
         a.remove()
@@ -411,84 +445,6 @@ window.__ModuleLoader__.load({
         document.head.appendChild(ar)
       }
       document.head.appendChild(mainScript)
-    }
-
-    /* Workspace file-row download: the right-sidebar file tree renders each file as
-       li[data-files-entry="file"][data-files-path=<absolute host path>]. Inject a ⬇
-       button into every such row (visible on hover) and save the file through the
-       session-authenticated /api/file route, which streams workspace bytes to the
-       browser — the stock UI only offers "open on Host desktop", unusable headless. */
-    {
-      const dlCss = document.createElement('style')
-      dlCss.textContent =
-        'li[data-files-entry="file"]{position:relative}'
-        + '.dsh-dl-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);z-index:5;display:none;'
-        + 'align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;'
-        + 'background:rgba(127,127,127,.28);color:inherit;cursor:pointer;font-size:12px;line-height:1}'
-        + 'li[data-files-entry="file"]:hover .dsh-dl-btn,li[data-files-entry="file"]:focus-within .dsh-dl-btn{display:inline-flex}'
-      document.head.appendChild(dlCss)
-      const ensureDl = (li) => {
-        if (li.querySelector('.dsh-dl-btn')) return
-        const btn = document.createElement('button')
-        btn.type = 'button'
-        btn.className = 'dsh-dl-btn'
-        btn.title = '下载到本地'
-        btn.setAttribute('aria-label', '下载到本地')
-        btn.textContent = '⬇'
-        li.appendChild(btn)
-      }
-      const scanDl = (root) => {
-        if (!root.querySelectorAll) return
-        if (root.matches && root.matches('li[data-files-entry="file"]')) ensureDl(root)
-        root.querySelectorAll('li[data-files-entry="file"]').forEach(ensureDl)
-      }
-      new MutationObserver((muts) => {
-        for (const m of muts) for (const n of m.addedNodes) if (n.nodeType === 1) scanDl(n)
-      }).observe(document.body, { childList: true, subtree: true })
-      scanDl(document)
-      document.addEventListener('click', (e) => {
-        const btn = e.target.closest && e.target.closest('.dsh-dl-btn')
-        if (!btn) return
-        e.preventDefault()
-        e.stopPropagation()
-        const li = btn.closest('li[data-files-entry="file"]')
-        const path = li && li.getAttribute('data-files-path')
-        if (!path) return
-        const a = document.createElement('a')
-        a.href = '/api/file?path=' + encodeURIComponent(path)
-        a.download = path.split('/').pop()
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-      }, true)
-    }
-
-    /* Auto jump-to-bottom on turn completion: the stock conversation viewport only
-       follows the stream while pinned to the bottom; scrolling up (e.g. to open the
-       lightbox) disengages follow and completion leaves the view where it was.
-       Watch the composer's stop button disappearing (running -> idle) and jump. */
-    {
-      const convScroller = () => {
-        // The [data-conversation-scroll] node IS the scroller (stock scrollerOf =
-        // closest()); several panes can exist, so prefer a visible scrollable one.
-        const nodes = [...document.querySelectorAll('[data-conversation-scroll]')].filter((n) => n.clientHeight > 4)
-        return nodes.find((n) => n.scrollHeight > n.clientHeight + 4) || nodes[0] || null
-      }
-      const isRunning = () => [...document.querySelectorAll('button')].some((b) => ((b.getAttribute('aria-label') || '') + b.textContent).includes('停止生成'))
-      let wasRunning = isRunning()
-      let jumpTimer = 0
-      new MutationObserver(() => {
-        if (jumpTimer) return
-        jumpTimer = setTimeout(() => {
-          jumpTimer = 0
-          const running = isRunning()
-          if (wasRunning && !running) {
-            const el = convScroller()
-            if (el && el.scrollHeight - el.scrollTop - el.clientHeight > 25) el.scrollTop = el.scrollHeight
-          }
-          wasRunning = running
-        }, 250)
-      }).observe(document.body, { childList: true, subtree: true, characterData: true })
     }
       },
     }

@@ -15,6 +15,7 @@
  * shows them inline and vision-capable routes can read them back.
  */
 
+import { createHmac } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { deflateSync } from 'node:zlib'
@@ -29,9 +30,8 @@ const GUIDANCE = [
   '- When an explanation involves shape, structure, or space — function curves and graphs, geometric relations, mechanical or engineering structures, processes and architectures — proactively produce a visual instead of a walls-of-text description. Do not ask permission first when the visual directly serves the current explanation.',
   '- For exact mathematical function graphs, coordinate plots, and calculus visualizations (limits, derivatives, integrals, series), call plot_function: diffusion models cannot render accurate axes or curves.',
   '- For conceptual diagrams, structure sketches, scene or object illustrations, posters, and "draw me a picture" requests, call generate_image.',
-  '- CRITICAL presentation rule: after plot_function or generate_image succeeds, your final message MUST embed the image inline by copying the <inline_markdown> line from the tool result verbatim (generate_image provides a 24h-signed OSS URL; plot_function provides a same-origin /dsh-images/ path). A bare filename or path reference is NOT acceptable.',
-  '- If generate_image fails with a content-moderation refusal (e.g. "Green net check failed for text input"), rephrase the prompt neutrally — drop quoted slogans/titles, brand names, and politically-adjacent words, describe the same visual plainly — and retry once before reporting the failure to the user.',
-  '- For plot_function also mention the workspace path once so the user can reuse the file.',
+  '- CRITICAL presentation rule: after plot_function or generate_image succeeds, your final message MUST embed the image inline as markdown image syntax: ![<short caption>](/<path>) where <path> is the workspace-relative path from the tool result (e.g. dsh-images/plot-123.png). The leading-slash form is a same-origin URL that the Web UI serves to the user\'s browser from whatever host they opened it on; a bare filename or path reference is NOT acceptable.',
+  '- Also mention the workspace path once so the user can reuse the file.',
 ].join('\n')
 
 /** The Web UI renders TeX via KaTeX; bare math prose renders as ugly plain text. */
@@ -61,6 +61,51 @@ const IMAGE_PUBLIC_BASE = process.env.DSH_IMAGE_PUBLIC_BASE || ''
 
 const DASHSCOPE_BASE = 'https://dashscope.aliyuncs.com/api/v1'
 
+/** OSS mirror: generated pixels outlive the 90-day box and get an https URL
+ *  any browser or model endpoint can fetch. The bucket has Block Public
+ *  Access on (object public-read ACLs are refused), so objects stay private
+ *  and messages embed a long-lived V1 pre-signed GET URL instead — anonymous
+ *  holders of the URL can read it until Expires. Pure node:crypto signing,
+ *  zero dependencies. Returns null when unconfigured or on any failure —
+ *  callers fall back to the same-origin /dsh-images/ route. */
+const OSS_URL_TTL_S = 10 * 365 * 24 * 3600
+
+async function ossPut(bytes, key, mediaType) {
+  const id = process.env.ALIBABA_CLOUD_ACCESS_KEY_ID
+  const secret = process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET
+  const bucket = process.env.OSS_BUCKET
+  const region = process.env.OSS_REGION
+  if (!id || !secret || !bucket || !region) return null
+  const host = `${bucket}.${region}.aliyuncs.com`
+  const date = new Date().toUTCString()
+  const sts = ['PUT', '', mediaType, date, `/${bucket}/${key}`].join('\n')
+  const sig = createHmac('sha1', secret).update(sts).digest('base64')
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 20_000)
+  try {
+    const res = await fetch(`https://${host}/${key}`, {
+      method: 'PUT',
+      body: bytes,
+      signal: ctrl.signal,
+      headers: {
+        Date: date,
+        'Content-Type': mediaType,
+        Authorization: `OSS ${id}:${sig}`,
+      },
+    })
+    if (!res.ok) return null
+    const expires = Math.floor(Date.now() / 1000) + OSS_URL_TTL_S
+    const getSts = ['GET', '', '', String(expires), `/${bucket}/${key}`].join('\n')
+    const getSig = createHmac('sha1', secret).update(getSts).digest('base64')
+    const q = new URLSearchParams({ OSSAccessKeyId: id, Expires: String(expires), Signature: getSig })
+    return `https://${host}/${key}?${q}`
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 function makeGenerateImageTool(ctx) {
   return {
     name: 'generate_image',
@@ -68,7 +113,7 @@ function makeGenerateImageTool(ctx) {
       'Generate an image with an AI diffusion model (DashScope qwen-image). '
       + 'Use when the user asks to draw/generate/create a picture, illustration, poster, concept diagram, mechanical-structure sketch, or scene, or when a conceptual visual would help an explanation. '
       + 'For exact math function graphs or coordinate plots use plot_function instead — diffusion models render coordinates inaccurately. '
-      + 'The image is shown inline in the conversation via a 24h-signed OSS URL; no workspace copy is kept.',
+      + 'The PNG is shown inline in the conversation and saved under dsh-images/ in the workspace.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -83,7 +128,7 @@ function makeGenerateImageTool(ctx) {
       schema: {
         type: 'object',
         additionalProperties: false,
-        required: ['path', 'prompt', 'image', 'url'],
+        required: ['path', 'prompt', 'image'],
         properties: {
           path: { type: 'string' },
           url: { type: 'string' },
@@ -173,18 +218,24 @@ function makeGenerateImageTool(ctx) {
       const image = await fetch(imageUrl, { signal: exec.signal })
       if (!image.ok) throw new Error(`generate_image: image download failed: HTTP ${image.status}`)
       const bytes = new Uint8Array(await image.arrayBuffer())
-      const mediaType = bytes[0] === 0x89 && bytes[1] === 0x50 ? 'image/png' : bytes[0] === 0xff && bytes[1] === 0xd8 ? 'image/jpeg' : null
-      if (!mediaType) throw new Error('generate_image: downloaded payload is neither PNG nor JPEG')
+      if (bytes[0] !== 0x89 || bytes[1] !== 0x50) throw new Error('generate_image: downloaded payload is not a PNG')
 
       const fname = `gen-${Date.now()}.png`
+      const rel = `dsh-images/${fname}`
+      // plain node fs to the literal served root: ctx.fs.processPath mapped
+      // writes away from what imgsrv serves, leaving inline images 404
+      const host = `${WORKSPACE_ROOT}/${rel}`
+      await mkdir(dirname(host), { recursive: true })
+      await writeFile(host, bytes)
+      const ossUrl = await ossPut(bytes, rel, 'image/png')
 
       const attachments = ctx.get('attachments')
-      if (!attachments) throw new Error('generate_image: no attachment store mounted')
-      const [ref] = await attachments.saveImages([{ data: bytes, mediaType, name: fname }])
+      if (!attachments) throw new Error('generate_image: no attachment store mounted; image saved at ' + rel)
+      const [ref] = await attachments.saveImages([{ data: bytes, mediaType: 'image/png', name: fname }])
 
       return {
-        path: fname,
-        url: imageUrl,
+        path: rel,
+        url: ossUrl || `${IMAGE_PUBLIC_BASE}/${rel}`,
         prompt: args.prompt,
         model,
         image: {
@@ -455,6 +506,7 @@ function makePlotFunctionTool(ctx) {
         required: ['path', 'expression', 'image'],
         properties: {
           path: { type: 'string' },
+          url: { type: 'string' },
           expression: { type: 'string' },
           xRange: { type: 'array', items: { type: 'number' } },
           yRange: { type: 'array', items: { type: 'number' } },
@@ -476,7 +528,7 @@ function makePlotFunctionTool(ctx) {
       render: (_args, value) => [
         {
           type: 'text',
-          text: `<path>${value.path}</path>\n<content>plot of y = ${value.expression} over x in [${value.xRange[0]}, ${value.xRange[1]}], y in [${value.yRange[0].toPrecision(4)}, ${value.yRange[1].toPrecision(4)}]</content>\n<inline_markdown>![plot of y = ${value.expression}](${IMAGE_PUBLIC_BASE}/${value.path})</inline_markdown>\nCopy the <inline_markdown> line verbatim into your final message so the image renders inline.`,
+          text: `<path>${value.path}</path>\n<content>plot of y = ${value.expression} over x in [${value.xRange[0]}, ${value.xRange[1]}], y in [${value.yRange[0].toPrecision(4)}, ${value.yRange[1].toPrecision(4)}]</content>\n<inline_markdown>![plot of y = ${value.expression}](${value.url})</inline_markdown>\nCopy the <inline_markdown> line verbatim into your final message so the image renders inline.`,
         },
         {
           type: 'image',
@@ -506,10 +558,10 @@ function makePlotFunctionTool(ctx) {
 
       const fname = `plot-${Date.now()}.png`
       const rel = `dsh-images/${fname}`
-      const target = await ctx.fs.resolve(`${WORKSPACE_ROOT}/${rel}`)
-      const host = ctx.fs.processPath(target)
+      const host = `${WORKSPACE_ROOT}/${rel}`
       await mkdir(dirname(host), { recursive: true })
       await writeFile(host, plot.png)
+      const ossUrl = await ossPut(plot.png, rel, 'image/png')
 
       const attachments = ctx.get('attachments')
       if (!attachments) throw new Error('plot_function: no attachment store mounted; plot saved at ' + rel)
@@ -517,6 +569,7 @@ function makePlotFunctionTool(ctx) {
 
       return {
         path: rel,
+        url: ossUrl || `${IMAGE_PUBLIC_BASE}/${rel}`,
         expression: args.expression,
         xRange: [opts.xMin, opts.xMax],
         yRange: [plot.yMin, plot.yMax],

@@ -19,6 +19,14 @@ mkdir -p ~/.dsh
 umask 077
 printf 'DASHSCOPE_API_KEY=%s\nDOUBAO_SEARCH_API_KEY=%s\nTOKEN_PLAN_DASHSCOPE_API_KEY=%s\n' \
   "$DASHSCOPE_API_KEY" "$DOUBAO_SEARCH_API_KEY" "$TOKEN_PLAN_DASHSCOPE_API_KEY" > ~/.dsh/.env
+
+# Optional OSS mirror: generated images are also uploaded to OSS and messages
+# embed long-lived signed URLs, so they survive box rotation. Without these
+# vars images are served only from this box's /dsh-images/ route.
+if [ -n "${ALIBABA_CLOUD_ACCESS_KEY_ID:-}" ] && [ -n "${OSS_BUCKET:-}" ]; then
+  printf 'ALIBABA_CLOUD_ACCESS_KEY_ID=%s\nALIBABA_CLOUD_ACCESS_KEY_SECRET=%s\nOSS_BUCKET=%s\nOSS_REGION=%s\n' \
+    "$ALIBABA_CLOUD_ACCESS_KEY_ID" "$ALIBABA_CLOUD_ACCESS_KEY_SECRET" "$OSS_BUCKET" "${OSS_REGION:-oss-cn-beijing}" >> ~/.dsh/.env
+fi
 cp "$HERE/settings.example.yaml" ~/.dsh/settings.yaml
 
 dsh plugin --profile web add github:JayLi52/dsh-web-search-doubao
